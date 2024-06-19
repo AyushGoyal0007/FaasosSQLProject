@@ -151,16 +151,16 @@ case when extra_items_included is null or extra_items_included = '' or extra_ite
 order_date from customer_orders
 )
 
-select * from temp_customer_orders;
-
-WITH temp_driver_order (order_id, driver_id, pickup_time, distance, duration, cancellation) as 
+, temp_driver_order (order_id, driver_id, pickup_time, distance, duration, new_cancellation) as 
 (
 select order_id, driver_id, pickup_time, distance, duration, 
 case when cancellation in ('Customer Cancellation', 'cancellation')then 0 else 1 
 end as new_cancellation from driver_order
 )
 
-select * from temp_driver_order;
-
-Question
 # For each customer, how many delivered rolls had at least 1 change and how many had no changes?
+select customer_id, chg_no_chg, count(a.chg_no_chg) as cnt from (
+select customer_id, case when not_include_items = '0' and extra_items_included = '0' then 'no change' else 'change' end as chg_no_chg 
+from temp_customer_orders where order_id in (
+select order_id from temp_driver_order where new_cancellation != '0')) a  
+group by customer_id, chg_no_chg order by customer_id;
