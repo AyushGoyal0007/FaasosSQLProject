@@ -97,24 +97,24 @@ select * from driver;
 select * from rolls;
 select * from rolls_recipes;
 
-###A. Roll Metrics: -
+### A. Roll Metrics: -
 
-Question
+#Question
 #How many rolls were ordered?
 select count(roll_id) as total_rolls from customer_orders;
 
-Question
+#Question
 #How many unique customers have orderd?
 select count(distinct customer_id) as customers from customer_orders;
 
-Question
+#Question
 #How many successful orders were delivered by each driver?
 To achieve this, we need to make data consistent as well.
 select count(*) as successful_orders from (select *, case when cancellation in ("Cancellation", "Customer Cancellation") 
 then "c" else "nc" end as order_cancel_details from driver_order) a where order_cancel_details 
 = "nc";
 
-Question
+#Question
 #How many of each type of roll was delivered?
 select roll_id, count(roll_id) as total_rolls from customer_orders where order_id in 
 (select order_id from (select *, case when cancellation 
@@ -122,13 +122,13 @@ in ("Cancellation", "Customer Cancellation")
 then "c" else "nc" end as order_cancel_details from driver_order) a 
 where order_cancel_details = "nc") group by roll_id;
 
-Question
+#Question
 #How many veg and non-veg rolls were ordered by each customer?
 select a.*, b.roll_name from
 (select customer_id, roll_id, count(roll_Id) as cnt from customer_orders a 
 group by customer_id, roll_id) a join rolls b on a.roll_id = b.roll_id;
 
-Question
+#Question
 #What are the maximum number of rolls delivered in a single order?
 select * from 
 (
@@ -158,9 +158,58 @@ case when cancellation in ('Customer Cancellation', 'cancellation')then 0 else 1
 end as new_cancellation from driver_order
 )
 
+#Question
 # For each customer, how many delivered rolls had at least 1 change and how many had no changes?
 select customer_id, chg_no_chg, count(a.chg_no_chg) as cnt from (
 select customer_id, case when not_include_items = '0' and extra_items_included = '0' then 'no change' else 'change' end as chg_no_chg 
 from temp_customer_orders where order_id in (
 select order_id from temp_driver_order where new_cancellation != '0')) a  
 group by customer_id, chg_no_chg order by customer_id;
+
+
+#Question
+#How many rolls delivered had both exclusions and extras?
+WITH temp_customer_orders(order_id,customer_id,roll_id,not_include_items,extra_items_included,order_date) as
+(
+select order_id,customer_id,roll_id, case when not_include_items is null or not_include_items = '' then '0' else not_include_items end as new_not_include_items,
+case when extra_items_included is null or extra_items_included = '' or extra_items_included = 'NaN' then '0' else extra_items_included end as new_extra_items_included,
+order_date from customer_orders
+)
+
+, temp_driver_order (order_id, driver_id, pickup_time, distance, duration, new_cancellation) as 
+(
+select order_id, driver_id, pickup_time, distance, duration, 
+case when cancellation in ('Customer Cancellation', 'cancellation')then 0 else 1 
+end as new_cancellation from driver_order
+)
+
+select chg_no_chg, count(chg_no_chg) as cnt from (
+select customer_id, case when not_include_items != '0' and extra_items_included != '0' then 'inc and exc' else 'either 1 inc or exc' end as chg_no_chg 
+from temp_customer_orders where order_id in (
+select order_id from temp_driver_order where new_cancellation != '0'))a 
+group by chg_no_chg;
+
+#Question
+#What was the total number of rolls ordered for each hour of the day?
+select hour_bucket, count(hour_bucket) as orders_per_hour from 
+(select *, concat(cast(hour(order_date) as char),'-', cast(hour(order_date)+1 as char)) as hour_bucket from customer_orders) a 
+group by hour_bucket;
+
+
+#Question
+#What was the number of orders for each day of the week?
+select day_name, count(distinct order_id) as orders_per_day 
+from (select *, dayname(order_date) as day_name from customer_orders) as a group by day_name;
+
+
+### B. Driver and Customer Experience
+
+#Question
+#What is the average time in minutes it took for each driver to arrive at the Faasos HQ to pickup the order?
+select driver_id, avg(diff_time) from 
+(select * from 
+(select *, row_number() over (partition by order_id order by diff_time) as rnk from 
+(select a.order_id, a.customer_id, a.roll_id, a.not_include_items, a.extra_items_included, a.order_date, 
+b.driver_id, b.pickup_time, b.distance, b.duration, b.cancellation, timestampdiff(minute, a.order_date, b.pickup_time) as diff_time 
+from customer_orders a join driver_order b on a.order_id = b.order_id
+where pickup_time is not NULL) as a) as b where rnk = 1) as c group by driver_id; 
