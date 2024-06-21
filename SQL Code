@@ -213,3 +213,54 @@ select driver_id, avg(diff_time) from
 b.driver_id, b.pickup_time, b.distance, b.duration, b.cancellation, timestampdiff(minute, a.order_date, b.pickup_time) as diff_time 
 from customer_orders a join driver_order b on a.order_id = b.order_id
 where pickup_time is not NULL) as a) as b where rnk = 1) as c group by driver_id; 
+
+
+#Question
+#Is there any relationship between the number of rolls and how long the order takes to prepare?
+select order_id, count(roll_Id) as count_of_rolls, avg(diff_time) as avg_time from 
+(select a.order_id, a.customer_id, a.roll_id, a.not_include_items, a.extra_items_included, a.order_date, 
+b.driver_id, b.pickup_time, b.distance, b.duration, b.cancellation, timestampdiff(minute, a.order_date, b.pickup_time) as diff_time 
+from customer_orders a join driver_order b on a.order_id = b.order_id
+where pickup_time is not NULL)a
+group by order_id;
+#We can see that there is a linear relationship between the time and count column with some deviations
+
+
+#Question
+#What is the average distance travelled for each customer?
+select customer_id, avg(distance) as avg_dist from
+(select * from 
+(select *, row_number() over (partition by order_id order by diff_time) as rnk from 
+(select a.order_id, a.customer_id, a.roll_id, a.not_include_items, a.extra_items_included, a.order_date, 
+b.driver_id, b.pickup_time, 
+cast(trim(replace(lower(b.distance), 'km', '')) as decimal(4,2)) as distance, 
+b.duration, b.cancellation, timestampdiff(minute, a.order_date, b.pickup_time) as diff_time 
+from customer_orders a join driver_order b on a.order_id = b.order_id
+where pickup_time is not NULL) as a) as b where rnk = 1) as c 
+group by customer_id;
+
+
+#Question
+#What is the difference between longest and shortest delivery time from all orders?
+select (max(final_duration) - min(final_duration)) as diff_long_short from 
+(select duration, cast(case when duration like '%min%' then left(duration, instr(duration, 'm') - 1) else duration end as unsigned) as final_duration from driver_order
+where duration is not null) as a;
+
+#Question
+#What is the average speed for each driver for each delivery and is there any trend?
+select a.order_id, a.driver_id, (a.distance)/(a.final_duration/60) as speed_in_kmh, b.cnt_roll from 
+(select order_id, driver_id, 
+cast(trim(replace(lower(distance), 'km', '')) as decimal(4,2)) as distance,
+cast(case when duration like '%min%' then left(duration, instr(duration, 'm') - 1) else duration end as unsigned) as final_duration
+from driver_order where distance is not null) as a join 
+(select order_id, count(roll_id) as cnt_roll from customer_orders group by order_id) as b on a.order_id = b.order_id;
+#We can see that the speed depends on number of rolls carries (though it is not a consistent trend). It is inversely propotional.
+
+#Question
+#What is the successful delivery percentage by each driver?
+select driver_id, round((total_success_orders*1.0/total_orders)* 100,2) as success_percentage from 
+(select driver_id, count(case when cancelled_person = 1 then 1 else null end) as total_success_orders, 
+count(driver_id) as total_orders from 
+(select driver_id, case when cancellation like '%cancel%' then 0 else 1 end as cancelled_person from driver_order) as a
+group by driver_id) as b;
+
